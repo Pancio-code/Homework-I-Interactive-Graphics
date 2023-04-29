@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>HOMEWORK-1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html {
+        overflow-x: hidden;
+      }
+      /* general styles */
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+      }
+
+      .toggler {
+        background-color: red;
+      }
+
+      .active {
+        background-color: green;
+      }
+
+      button {
+        border-radius: 15%;
+        border: 3px solid black;
+        background-color: brown;
+        margin: 5px;
+        padding: 5px;
+        color: white;
+      }
+
+      input[type="range"] {
+        accent-color: brown;
+      }
+
+      input[type="color"] {
+        border: 2px solid black;
+
+      }
+
+      label {
+        font-size: 20px;
+        color: black;
+        font-weight: bolder;
+      }
+
+      span {
+        font-size: 23px;
+        color: black;
+      }
+
+      .title {
+        width: 100%;
+        height: 3vh;
+        padding-top: 30px;
+      }
+
+      .settings h1 {
+        padding-top: 20px;
+      }
+
+      .title h1 {
+        color: gray;
+        font-family: "Rouge Script", cursive;
+        font-size: 3vw;
+        font-weight: normal;
+        line-height: 48px;
+        padding-left: 50px;
+        text-shadow: 1px 1px 2px #082b34;
+      }
+
+      .container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .canvas {
+        width: 70%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .active {
+        background-color: green;
+      }
+
+      canvas {
+        width: 95%;
+        height: 80%;
+        border: 5px solid brown;
+      }
+
+      .settings {
+        width: 30%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+      }
+
+      @media only screen and (max-width: 900px) {
+        .container {
+          flex-direction: column;
+        }
+
+        .title h1 {
+          font-size: 5vw;
+          visibility: hidden;
+        }
+
+        .canvas {
+          width: 100%;
+          height: 30%;
+        }
+
+        .settings {
+          width: 100%;
+          height: 70%;
+        }
+      }
+    </style>
+  </head>
+  <script id="vertex-shader" type="x-shader/x-vertex">
+    #version 300 es
+    precision mediump float;
+    //variables to pass from js application
+    in  vec4 aPosition;
+    in  vec3 aNormal;
+
+    //variables to pass to fragment shader
+    out vec4 vColor;
+    out vec4 fPosition;
+    out vec3 fNormal;
+
+    uniform vec4 uAmbientProduct, uDiffuseProduct, uSpecularProduct;
+    uniform mat3 uNormalMatrix;
+    uniform mat4 uModelViewMatrix;
+    uniform mat4 uRotationMatrix;
+    uniform mat4 uProjectionMatrix;
+    uniform vec4 uLightPosition;
+    uniform vec4 uLightDirection;
+    uniform float uLightAngle;
+    uniform float uLightAttenuation;
+    uniform float uShininess;
+    uniform bool IsLightOn;
+
+    void main()
+    {
+       vec3 pos = (uModelViewMatrix * uRotationMatrix* aPosition).xyz;
+
+        vec3 light = (uModelViewMatrix*uLightPosition).xyz;
+        vec3 L;
+        if(uLightPosition.w == 0.0) L = normalize(light);
+        else L = normalize(light - pos);
+
+        vec3 E = -normalize(pos);
+        vec4 ambient = uAmbientProduct;
+
+        vec3 H = normalize(L + E);
+
+        vec3 N = normalize((uNormalMatrix* mat3(uRotationMatrix) * aNormal).xyz);
+
+        float Kd = max(dot(L, N), 0.0);
+        vec4  diffuse = Kd*uDiffuseProduct;
+
+        float Ks = pow( max(dot(N, H), 0.0), uShininess );
+        vec4  specular = Ks * uSpecularProduct;
+
+        if( dot(L, N) < 0.0 ) {
+    	  specular = vec4(0.0, 0.0, 0.0, 1.0);
+        }
+
+        //direction and attenuation
+        vec3 lightDirection = (uModelViewMatrix*uLightDirection).xyz;
+        float lightDirectionValue = dot(-normalize(lightDirection), L);
+        float attenuationFactor = uLightAttenuation * pow(length((uLightPosition.xyz) - pos), 2.0);
+        float attenuation = 1.0 / (1.0 + attenuationFactor);
+
+        //when light is off, or the direction its not greater then the angle, use the ambient color
+        if(IsLightOn) {
+          if (lightDirectionValue >= uLightAngle) {
+            vColor = ambient + attenuation * (diffuse + specular);
+          } else{
+            vColor = ambient;
+          }
+        } else {
+          vColor = ambient;
+        }
+
+        gl_Position = uProjectionMatrix * uModelViewMatrix *uRotationMatrix *aPosition;
+        vColor.a = 1.0;
+
+        //pass variables to fragment
+        fPosition = aPosition;
+        fNormal = aNormal;
+        }
+  </script>
+
+  <script id="fragment-shader" type="x-shader/x-fragment">
+
+    #version 300 es
+
+    precision mediump float;
+
+     //variables to pass from vertex shader
+    in vec4 vColor;
+    in vec4 fPosition;
+    in vec3 fNormal;
+
+    out vec4 fColor;
+
+    uniform vec4 uAmbientProduct, uDiffuseProduct, uSpecularProduct;
+    uniform mat4 uModelViewMatrix;
+    uniform mat3 uNormalMatrix;
+    uniform mat4 uRotationMatrix;
+    uniform mat4 uProjectionMatrix;
+    uniform vec4 uLightPosition;
+    //array of user colors
+    uniform vec4 uChosenColors[8];
+    uniform vec4 uLightDirection;
+    uniform float uLightAngle;
+    uniform float uLightAttenuation;
+    uniform float uShininess;
+    uniform float uPercentageFragment;
+    uniform bool IsLightOn;
+    uniform bool uIsQuantizationOn;
+
+    //Euclidian distance => equivalent to distance(firstColor,secondColor)
+    float distanceColors(vec4 firstColor, vec4 secondColor) {
+      float distanceX = firstColor.x-secondColor.x;
+      float distanceY = firstColor.y-secondColor.y;
+      float distanceZ = firstColor.z-secondColor.z;
+      float distance = sqrt(distanceX*distanceX + distanceY*distanceY + distanceZ*distanceZ);
+      return distance;
+    }
+
+    void main()
+    {
+      vec3 pos = (uModelViewMatrix * uRotationMatrix* fPosition).xyz;
+
+      vec3 light = (uModelViewMatrix*uLightPosition).xyz;
+      vec3 L;
+      if(uLightPosition.w == 0.0) L = normalize(light);
+      else L = normalize(light - pos);
+
+      vec3 E = -normalize(pos);
+      vec4 ambient = uAmbientProduct;
+
+      vec3 H = normalize(L + E);
+
+      vec3 N = normalize((uNormalMatrix* mat3(uRotationMatrix) * fNormal).xyz);
+
+
+      float Kd = max(dot(L, N), 0.0);
+      vec4  diffuse = Kd*uDiffuseProduct;
+
+      float Ks = pow( max(dot(N, H), 0.0), uShininess );
+      vec4  specular = Ks * uSpecularProduct;
+
+      if( dot(L, N) < 0.0 ) {
+      specular = vec4(0.0, 0.0, 0.0, 1.0);
+      }
+
+      //direction and attenuation
+      vec3 lightDirection = (uModelViewMatrix*uLightDirection).xyz;
+      float lightDirectionValue = dot(-normalize(lightDirection), L);
+      float attenuationFactor = uLightAttenuation * pow(length((uLightPosition.xyz) - pos), 2.0);
+      float attenuation = 1.0 / (1.0 + attenuationFactor);
+
+      //when light is off, or the direction its not greater then the angle, use the ambient color
+      if(IsLightOn) {
+        //calculate the angle of opening of the light
+        if (lightDirectionValue >= uLightAngle) {
+          fColor = ((ambient + attenuation * (diffuse + specular)) * uPercentageFragment) + vColor * (1.0 - uPercentageFragment);
+        } else{
+          fColor = (ambient * uPercentageFragment) + vColor * (1.0 - uPercentageFragment);
+        }
+      } else {
+        fColor = (ambient * uPercentageFragment) + vColor * (1.0 - uPercentageFragment);
+      }
+
+      fColor.a = 1.0;
+
+      if(uIsQuantizationOn) {
+        // calculate for each color the distance with the fragment color result, and choose che color with the minimum distance
+        vec4 colorChosen = uChosenColors[0];
+        float distance = distanceColors(fColor, colorChosen);
+        float currDistance;
+
+        for(int i = 1; i < 8; i++) {
+          currDistance = distanceColors(fColor, uChosenColors[i]);
+          if(currDistance < distance) {
+            distance = currDistance;
+            colorChosen = uChosenColors[i];
+          }
+        }
+
+        fColor = colorChosen;
+      }
+
+    }
+  </script>
+
+  <script type="text/javascript" src="../Common/initShaders.js"></script>
+  <script type="text/javascript" src="../Common/MV.js"></script>
+  <script type="text/javascript" src="homework1.js"></script>
+  <body>
+    <div class="title">
+      <h1>Homework-1 by Andrea Panceri (1884749)</h1>
+    </div>
+    <div class="container">
+      <!--Responsive canavas-->
+      <div class="canvas">
+        <canvas id="gl-canvas">
+          Oops ... your browser doesn't support the HTML5 canvas element
+        </canvas>
+      </div>
+      <div class="settings">
+        <!--Slider for camera-->
+        <div class="camera">
+          <h2>Camera settings:</h2>
+          <div>
+            <label for="zNearSlider">zNear</label>
+            <span>0.1</span>
+            <input
+              id="zNearSlider"
+              type="range"
+              min=".01"
+              max="3"
+              step="0.1"
+              value="0.1"
+            />
+            <span>3</span>
+          </div>
+          <div>
+            <label for="zFarSlider">zFar</label>
+            <span>3</span>
+            <input
+              id="zFarSlider"
+              type="range"
+              min="3"
+              max="10"
+              step="3.0"
+              value="7"
+            />
+            <span>10</span>
+          </div>
+          <div>
+            <label for="radiusSlider">radius</label>
+            <span>0.05</span>
+            <input
+              id="radiusSlider"
+              type="range"
+              min="0.05"
+              max="10"
+              step="0.1"
+              value="4"
+            />
+            <span>10</span>
+          </div>
+          <div>
+            <label for="thetaSlider">theta</label>
+            <span>-180</span>
+            <input
+              id="thetaSlider"
+              type="range"
+              min="-180"
+              max="180"
+              step="5"
+              value="-168"
+            />
+            <span>180</span>
+          </div>
+          <div>
+            <label for="phiSlider">phi</label>
+            <span>-180</span>
+            <input
+              id="phiSlider"
+              type="range"
+              min="-180"
+              max="180"
+              step="5"
+              value="-18"
+            />
+            <span>180</span>
+          </div>
+          <!-- Slider to change the fov of projection-->
+          <div>
+            <label for="fovSlider">fov</label>
+            <span>10</span>
+            <input
+              id="fovSlider"
+              type="range"
+              min="10"
+              max="120"
+              step="5"
+              value="20"
+            />
+            <span>120</span>
+          </div>
+          <!-- Slider to change the aspect of projection-->
+          <div>
+            <label for="aspectSlider">aspect</label>
+            <span>0.5</span>
+            <input
+              id="aspectSlider"
+              type="range"
+              min="0.5"
+              max="2"
+              step="0.1"
+              value="1"
+            />
+            <span>2</span>
+          </div>
+        </div>
+        <!--Buttons for rotation-->
+        <div class="rotation">
+          <h2>Rotation settings:</h2>
+          <!-- Button to rotate on X axis-->
+          <button id="ButtonX" class="active">Rotate X</button>
+          <!-- Button to rotate on Y axis-->
+          <button id="ButtonY">Rotate Y</button>
+          <!-- Button to rotate on Z axis-->
+          <button id="ButtonZ">Rotate Z</button>
+          <!-- Button to toggle rotation-->
+          <button id="ButtonT" class="toggler">Toggle Rotation</button>
+          <!-- Button to change rotation direction-->
+          <button id="ButtonD">Change Rotation Direction</button>
+          <!-- Slider to change speed of rotation-->
+          <div>
+            <label for="rSpeedSlider">Speed</label>
+            <span>1</span>
+            <input
+              id="rSpeedSlider"
+              type="range"
+              min="10"
+              max="110"
+              step="1"
+              value="1"
+            />
+            <span>100</span>
+          </div>
+        </div>
+        <!--Buttons and slider for the light-->
+        <div class="Light">
+          <h2>Light settings:</h2>
+          <button id="ButtonL" class="toggler">Toggle Light</button>
+          <!-- Button to toggle light-->
+          <div>
+            <label for="shininessSlider">Material Shininess</label>
+            <span>0</span>
+            <input
+              id="shininessSlider"
+              type="range"
+              min="0"
+              max="100"
+              step="0.1"
+              value="0.1"
+            />
+            <span>100</span>
+          </div>
+          <!--Slider for change X position of light-->
+          <div>
+            <label for="lightPositionXSlider">Light position X</label>
+            <span>-1.5</span>
+            <input
+              id="lightPositionXSlider"
+              type="range"
+              min="-1.5"
+              max="1.5"
+              step="0.01"
+              value="0.0"
+            />
+            <span>1.5</span>
+          </div>
+          <!--Slider for change Y position of light-->
+          <div>
+            <label for="lightPositionYSlider">Light position Y</label>
+            <span>-0.8</span>
+            <input
+              id="lightPositionYSlider"
+              type="range"
+              min="-0.8"
+              max="1.8"
+              step="0.01"
+              value="0.8"
+            />
+            <span>1.8</span>
+          </div>
+          <!--Slider for change Z position of light-->
+          <div>
+            <label for="lightPositionZSlider">Light position Z</label>
+            <span>-7.0</span>
+            <input
+              id="lightPositionZSlider"
+              type="range"
+              min="-7.0"
+              max="-5.0"
+              step="0.01"
+              value="-6.0"
+            />
+            <span>-5.0</span>
+          </div>
+          <!--Slider for change X direction of light-->
+          <div>
+            <label for="lightXSlider">Light direction X</label>
+            <span>-1.5</span>
+            <input
+              id="lightXSlider"
+              type="range"
+              min="-1.5"
+              max="1.5"
+              step="0.01"
+              value="0.0"
+            />
+            <span>1.5</span>
+          </div>
+          <!--Slider for change Y direction of light-->
+          <div>
+            <label for="lightYSlider">Light direction Y</label>
+            <span>-2.0</span>
+            <input
+              id="lightYSlider"
+              type="range"
+              min="-2.0"
+              max="1.0"
+              step="0.01"
+              value="-0.5"
+            />
+            <span>1.0</span>
+          </div>
+          <!--Slider for change Z direction of light-->
+          <div>
+            <label for="lightZSlider">Light direction Z</label>
+            <span>2.5</span>
+            <input
+              id="lightZSlider"
+              type="range"
+              min="2.5"
+              max="5.5"
+              step="0.01"
+              value="4.0"
+            />
+            <span>5.5</span>
+          </div>
+          <!--Slider for change opening of light-->
+          <div>
+            <label for="lightOpeningSlider">Light opening angle</label>
+            <span>1</span>
+            <input
+              id="lightOpeningSlider"
+              type="range"
+              min="1"
+              max="10"
+              step="0.2"
+              value="4.1"
+            />
+            <span>180</span>
+          </div>
+          <!--Slider for attenuation-->
+          <div>
+            <label for="lightAttenuationSlider">Light attenuation</label>
+            <span>0</span>
+            <input
+              id="lightAttenuationSlider"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value="0.02"
+            />
+            <span>1</span>
+          </div>
+        </div>
+        <!--Slider 0 to 100 for fragment shader in the result color-->
+        <div class="Shading">
+          <h2>Shading settings:</h2>
+          <p>Per-vertex --> 0, Per-fragment -->100</p>
+          <div>
+            <span>0</span>
+            <input
+              id="shadingSlider"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value="100"
+            />
+            <span>100</span>
+          </div>
+        </div>
+
+        <!--eigth color pickers-->
+        <div class="Quantization">
+          <h2>Quantization settings:</h2>
+          <button id="ButtonQ" class="toggler">Toggle Quantization</button>
+
+          <div class="row">
+            <div>
+              <input type="color" id="color0" name="color0" value="#FF0000" />
+              <label for="color0">1<sup>st </sup> col.</label>
+            </div>
+            <div>
+              <input type="color" id="color1" name="color1" value="#00FF00" />
+              <label for="color1">2<sup>nd </sup> col.</label>
+            </div>
+            <div>
+              <input type="color" id="color2" name="color2" value="#0000FF" />
+              <label for="color2">3<sup>rd </sup> col.</label>
+            </div>
+            <div>
+              <input type="color" id="color3" name="color3" value="#FFFF00" />
+              <label for="color3">4<sup>th </sup> col.</label>
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <input type="color" id="color4" name="color4" value="#FF00FF" />
+              <label for="color4">5<sup>th </sup> col.</label>
+            </div>
+
+            <div>
+              <input type="color" id="color5" name="color5" value="#00FFFF" />
+              <label for="color5">6<sup>th </sup> col.</label>
+            </div>
+            <div>
+              <input type="color" id="color6" name="color6" value="#664266" />
+              <label for="color6">7<sup>th </sup> col.</label>
+            </div>
+            <div>
+            <input type="color" id="color7" name="color7" value="#271050" />
+            <label for="color7">8<sup>th </sup> col.</label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
